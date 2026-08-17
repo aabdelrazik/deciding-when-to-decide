@@ -25,207 +25,6 @@ from scipy.interpolate import RegularGridInterpolator as _RGI
 IS_LATEX = True
 
 
-def _fill_diagonal_gaps(grid):
-    """Fill internal NaN gaps along each row with the (averaged) nearest
-    valid neighbour(s), leaving the outer triangular NaN regions untouched.
-    Mirrors the gap-filling used by plot_best_actions so heatmaps built on
-    the same diagonal yellow-blue grid don't show checkerboard white cells.
-    """
-    for i in range(grid.shape[0]):
-        row = grid[i, :]
-        valid_indices = np.where(~np.isnan(row))[0]
-        if len(valid_indices) == 0:
-            continue
-
-        first_valid, last_valid = valid_indices[0], valid_indices[-1]
-        segment = row[first_valid : last_valid + 1]
-        seg_valid_idx = np.where(~np.isnan(segment))[0]
-        seg_invalid_idx = np.where(np.isnan(segment))[0]
-
-        if len(seg_invalid_idx) > 0 and len(seg_valid_idx) > 0:
-            distances = np.abs(seg_invalid_idx[:, None] - seg_valid_idx)
-            for k_pos, k in enumerate(seg_invalid_idx):
-                min_d = distances[k_pos].min()
-                tied = seg_valid_idx[distances[k_pos] == min_d]
-                segment[k] = segment[tied].mean()
-
-        grid[i, first_valid : last_valid + 1] = segment
-
-    return grid
-
-
-def _set_plot_style(font_size=20, is_latex=IS_LATEX):
-    """Helper to set consistent plot styles."""
-    if is_latex:
-        plt.rcParams.update(
-            {
-                "text.usetex": True,
-                "font.family": "serif",
-                "font.size": font_size,
-                "axes.titlesize": font_size,
-                "axes.labelsize": font_size,
-                "xtick.labelsize": font_size,
-                "ytick.labelsize": font_size,
-                "legend.fontsize": font_size,
-            }
-        )
-    else:
-        # Reset to default or specify non-LaTeX styles here if needed
-        plt.rcParams.update(
-            {
-                "font.size": font_size,
-                "axes.titlesize": font_size,
-                "axes.labelsize": font_size,
-                "xtick.labelsize": font_size,
-                "ytick.labelsize": font_size,
-                "legend.fontsize": font_size,
-            }
-        )
-
-
-colors = ["lightgray", "#3FD24B", "#E92424"]
-cmap = mcolors.LinearSegmentedColormap.from_list("RedGreyBlack", colors)
-
-
-# Single source of truth for the GA settings. These used to be duplicated
-# verbatim inside POMDP.ga_fit, POMDP_Forgetting.ga_fit and
-# POMDP_Exaggeration.ga_fit, which made them impossible to tune coherently.
-GA_ALGORITHM_PARAMS = {
-    "max_num_iteration": 200,
-    "population_size": 100,
-    "mutation_probability": 0.4,
-    "elit_ratio": 0.05,
-    "crossover_probability": 0.5,
-    "parents_portion": 0.5,
-    "crossover_type": "uniform",
-    "max_iteration_without_improv": None,
-}
-
-
-def get_ga_params() -> dict:
-    """Return the GA settings, letting POMDP_GA_PARAMS override any of them.
-
-    The environment variable holds a JSON object merged over
-    GA_ALGORITHM_PARAMS, so convergence settings can be swept across a fitting
-    run without editing library code (e.g. POMDP_GA_PARAMS='{"population_size":
-    400}'). Absent the variable the defaults are returned unchanged.
-
-    Returns:
-        dict: Algorithm parameters to hand to geneticalgorithm2.
-    """
-    params = dict(GA_ALGORITHM_PARAMS)
-    override = os.environ.get("POMDP_GA_PARAMS")
-    if override:
-        params.update(json.loads(override))
-    return params
-
-
-# Differential-evolution settings, validated against the GA on a nested model
-# pair (a model whose search space contains another's must not fit worse). The
-# GA left ~300 logL on the table for the larger model and violated nesting for
-# 17/20 subjects; these settings satisfy it for 20/20 at a comparable evaluation
-# budget, and reach an identical optimum from independent seeds. "polish" is the
-# key difference: it runs a local L-BFGS-B refinement the GA has no equivalent of.
-DE_ALGORITHM_PARAMS = {
-    "strategy": "best1bin",
-    "popsize": 15,
-    "maxiter": 300,
-    "tol": 0,
-    "mutation": (0.5, 1.0),
-    "recombination": 0.9,
-    "init": "sobol",
-    "polish": True,
-}
-
-
-def get_de_params() -> dict:
-    """Return the DE settings, letting POMDP_DE_PARAMS override any of them.
-
-    Mirrors get_ga_params: the environment variable holds a JSON object merged
-    over DE_ALGORITHM_PARAMS.
-
-    Returns:
-        dict: Keyword arguments for scipy's differential_evolution.
-    """
-    params = dict(DE_ALGORITHM_PARAMS)
-    override = os.environ.get("POMDP_DE_PARAMS")
-    if override:
-        params.update(json.loads(override))
-    if isinstance(params.get("mutation"), list):
-        params["mutation"] = tuple(params["mutation"])
-    return params
-
-
-_DE_SEEDS = None
-
-
-def de_seed_for(subject_ID, param_ranges: dict):
-    """Starting point for this subject under the active TASK, or None.
-
-    The table is written by scripts/build_de_seeds.py and named by the
-    POMDP_DE_SEEDS environment variable. Each entry is a point the current
-    model can occupy (a nested neighbour's fit), so starting there prevents the
-    optimizer from returning a worse fit than a model this one contains.
-
-    Args:
-        subject_ID: Identifier for the subject being fit.
-        param_ranges (dict): Used to check the seed has the expected length.
-
-    Returns:
-        list | None: Seed ordered like param_ranges, or None if unavailable.
-    """
-    global _DE_SEEDS
-    path = os.environ.get("POMDP_DE_SEEDS")
-    if not path:
-        return None
-    if _DE_SEEDS is None:
-        try:
-            import pickle
-
-            with open(path, "rb") as fh:
-                _DE_SEEDS = pickle.load(fh)
-        except Exception:
-            _DE_SEEDS = {}
-    vec = _DE_SEEDS.get(TASK, {}).get(str(subject_ID))
-    return vec if vec is not None and len(vec) == len(param_ranges) else None
-
-
-def run_differential_evolution(param_ranges: dict, cost_function, x0=None):
-    """Minimize cost_function over param_ranges with scipy differential evolution.
-
-    Args:
-        param_ranges (dict): Maps parameter name to a (low, high) bound tuple.
-            Iteration order defines the coordinate order of the result.
-        cost_function (Callable[[list], float]): Function to minimize.
-
-    Returns:
-        scipy.optimize.OptimizeResult: Raw result, so each caller can apply its
-            own post-processing (e.g. snapping gamma to the pre-built grid).
-
-    Notes:
-        is_hazardous is the one genuinely discrete parameter (0/1). Declaring it
-        via `integrality` makes DE search it as a binary gene rather than
-        optimizing a continuous value that is rounded afterwards.
-    """
-    keys = list(param_ranges.keys())
-    bounds = [tuple(param_ranges[k]) for k in keys]
-    integrality = np.array([1 if k == "is_hazardous" else 0 for k in keys])
-    kwargs = dict(get_de_params())
-    if x0 is not None:
-        # clipped so a seed taken from a model with wider bounds stays feasible
-        kwargs["x0"] = np.array(
-            [min(max(float(v), lo), hi) for v, (lo, hi) in zip(x0, bounds)],
-            dtype=float,
-        )
-    return differential_evolution(
-        cost_function,
-        bounds,
-        integrality=integrality,
-        seed=int(os.environ.get("POMDP_DE_SEED", "0")),
-        **kwargs,
-    )
-
-
 class POMDP:
     """
     Base card-drawing POMDP: solves for the optimal (softmax) Yellow/Blue/Wait
@@ -482,40 +281,6 @@ class POMDP:
         valid_mask = (i >= 0) & (i <= self.max_cards_per_draw)
 
         return np.where(valid_mask, np.nan_to_num(probabilities), 0.0)
-
-    # def extract_actions(self):
-    #     """
-    #     Fast version: Extract best actions with random tie-breaking,
-    #     fully vectorized for 3 actions.
-    #     """
-    #     eps_val = 1e-10
-    #     policy = self.policy  # Shape: (..., 3)
-
-    #     # Step 1: Get max value and identify ties
-    #     max_vals = np.max(policy, axis=-1, keepdims=True)
-    #     is_max = np.abs(policy - max_vals) < eps_val  # Shape: (..., 3)
-
-    #     # Step 2: Generate random numbers, mask non-max positions
-    #     rng = np.random.default_rng()
-    #     random_vals = rng.random(policy.shape)  # Shape: (..., 3)
-    #     random_vals[~is_max] = (
-    #         -1
-    #     )  # Set non-max positions to -1 so they won't be chosen, I could set them to -3 or so.
-
-    #     # Step 3: Choose index of the highest random value among tied max
-    #     randomized_best_actions = np.argmax(random_vals, axis=-1)  # Shape: (...)
-
-    #     # Step 4: Handle close-to-wait logic
-    #     yellow_val = policy[..., 0]
-    #     blue_val = policy[..., 1]
-    #     wait_val = policy[..., 2]
-
-    #     close_to_wait_mask = (np.abs(yellow_val - wait_val) < eps_val) | (
-    #         np.abs(blue_val - wait_val) < eps_val
-    #     )
-
-    #     # Step 5: Final action choice
-    #     self.best_actions = np.where(close_to_wait_mask, 2, randomized_best_actions)
 
     def extract_actions(self) -> None:
         """
@@ -1439,58 +1204,6 @@ class POMDP:
         chosen_action = np.random.choice(actions, p=policy_at_current_draw)
         return chosen_action
 
-    # def simulate_cards_pomdp(
-    #     self, given_sequence=False, card_sequence=None, start_hazard=None,seed=None
-    # ) -> dict:
-    #     """
-    #     Simulate the card experiment by drawing yellow cards randomly with probability `qy` and choosing the best action according to the calculated action values and best actions.
-
-    #     Args:
-    #         best_actions (np.ndarray): Array of best actions.
-    #         beliefs (np.ndarray): Array of beliefs.
-    #         max_draws (int): Maximum number of draws.
-    #         qy (float, optional): Probability of drawing a yellow card. Defaults to 0.5.
-
-    #     Returns:
-    #         dict: A dictionary containing the belief trajectory, actions, number of draws, total evidence, last evidence, and number of yellow cards drawn.
-    #     """
-    #     # initalize the lists, and variables
-    #     num_yellows = []
-    #     num_blues = []
-    #     belief_trajectory = []
-    #     actions = []
-    #     num_draws_list = []
-    #     max_draws=len(card_sequence)
-
-    #     for i in range(max_draws):
-    #         # print(card_sequence[i])
-    #         draw,yellow,blue,action,outcome=card_sequence[i]
-    #         num_draws_list.append(draw)
-    #         num_yellows.append(yellow)
-    #         num_blues.append(blue)
-    #         actions.append(action)
-    #         if outcome==-1:
-    #             break
-    #         if int(action)==1 or int(action)==0:
-    #             break
-
-    #     results = {
-    #         "trajectory": belief_trajectory,
-    #         "reward": outcome,
-    #         "actions": actions,
-    #         "decision": action,
-    #         "num_draws": draw,
-    #         "num_draws_list": num_draws_list,
-    #         "max_draws": max_draws,
-    #     }
-
-    #     results["num_yellows"] = num_yellows[ :draw + 1]
-    #     results["num_blues"] = num_blues[ :draw+ 1]
-    #     results["num_yellows_full_sequence"] = num_yellows[:]
-    #     results["num_blues_full_sequence"] = num_blues[:]
-
-    #     return results
-
     def simulate_cards_pomdp(
         self,
         given_sequence: bool = False,
@@ -1735,55 +1448,6 @@ class POMDP_Urgency(POMDP):
         self.urgency_slope = urgency_slope
         self.patience = patience
         self.c_max = c_max
-
-    # def softmax_policy(self, action_values: np.ndarray,draw=0, axis: int = -1) -> np.ndarray:
-    #     """
-    #     Numerically stable softmax with lapse applied ONLY to first two actions.
-    #     The last action is NOT affected at all (its probability is set by pure softmax).
-    #     The total sum is always 1; total of first two actions is preserved.
-    #     """
-    #     # Standard, stable softmax
-    #     max_val = np.max(action_values, axis=axis, keepdims=True)
-    #     all_impossible_mask = np.isneginf(max_val)
-    #     safe_max_val = np.where(all_impossible_mask, 0, max_val)
-    #     if draw<=self.sweetspot_tau:
-    #         scaled_values = (action_values - safe_max_val) / self.tau
-    #     else:
-    #         scaled_values = (action_values - safe_max_val) / self.tau_2
-
-    #     exps = np.exp(scaled_values)
-    #     denominator = np.sum(exps, axis=axis, keepdims=True)
-    #     softmax_probs = np.nan_to_num(exps / denominator)
-
-    #     # Save original last action
-    #     probs_last = softmax_probs[..., -1]
-
-    #     # Get total probability of first two before mixing
-    #     probs_first_two_sum = np.sum(softmax_probs[..., :2], axis=axis, keepdims=True)
-
-    #     # Mix the first two: new = (1-xi)*orig + xi/2, but RESCALE so their total is unchanged
-    #     # Calculate the sum after lapse would have been applied
-    #     if draw<=self.sweetspot_xi:
-    #         mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + self.xi / 2
-    #     else:
-    #         mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + self.xi_2 / 2
-    #     mixed_sum = np.sum(mixed_first_two, axis=axis, keepdims=True)
-
-    #     # Scale factor so the sum of the first two actions remains the same as before
-    #     scaling = np.divide(
-    #         probs_first_two_sum,
-    #         mixed_sum,
-    #         out=np.ones_like(mixed_sum),
-    #         where=(mixed_sum != 0),
-    #     )
-    #     mixed_first_two = mixed_first_two * scaling
-
-    #     # Stack all together: first two mixed, last untouched
-    #     final_policy = np.concatenate(
-    #         [mixed_first_two, probs_last[..., None]], axis=axis
-    #     )
-
-    #     return final_policy
 
     def calculate_belief_probability(
         self, num_blues: int, num_yellows: int, q: float = 0.5
@@ -2903,16 +2567,6 @@ class POMDP_Forgetting(POMDP_Urgency):
                 n=self.max_cards_per_draw, p=p_yellow, size=deadline
             )
             blue_trace = self.max_cards_per_draw - yellow_trace
-
-            # according to the max number of draws, i.e., the deadline, I generate the yellow and blue cards here.
-
-            # yellow_trace = np.array(
-            #     [
-            #         np.random.randint(0, self.max_cards_per_draw + 1)
-            #         for _ in range(deadline)
-            #     ]
-            # )
-            # blue_trace = self.max_cards_per_draw - yellow_trace
 
             # I just insert zeros at the beginning, so that when I calculate the cumsum, I have a full list of cards.
             yellow_trace = np.insert(yellow_trace, 0, 0)
@@ -5954,3 +5608,209 @@ def POMDPFactory(pomdp_type: str = POMDP_TYPE) -> POMDP:
         raise ValueError(
             f"Invalid pomdp type, the type should be one of the following list {list(pomdp_dic.keys())}"
         )
+
+
+
+
+
+def _fill_diagonal_gaps(grid):
+    """Fill internal NaN gaps along each row with the (averaged) nearest
+    valid neighbour(s), leaving the outer triangular NaN regions untouched.
+    Mirrors the gap-filling used by plot_best_actions so heatmaps built on
+    the same diagonal yellow-blue grid don't show checkerboard white cells.
+    """
+    for i in range(grid.shape[0]):
+        row = grid[i, :]
+        valid_indices = np.where(~np.isnan(row))[0]
+        if len(valid_indices) == 0:
+            continue
+
+        first_valid, last_valid = valid_indices[0], valid_indices[-1]
+        segment = row[first_valid : last_valid + 1]
+        seg_valid_idx = np.where(~np.isnan(segment))[0]
+        seg_invalid_idx = np.where(np.isnan(segment))[0]
+
+        if len(seg_invalid_idx) > 0 and len(seg_valid_idx) > 0:
+            distances = np.abs(seg_invalid_idx[:, None] - seg_valid_idx)
+            for k_pos, k in enumerate(seg_invalid_idx):
+                min_d = distances[k_pos].min()
+                tied = seg_valid_idx[distances[k_pos] == min_d]
+                segment[k] = segment[tied].mean()
+
+        grid[i, first_valid : last_valid + 1] = segment
+
+    return grid
+
+
+def _set_plot_style(font_size=20, is_latex=IS_LATEX):
+    """Helper to set consistent plot styles."""
+    if is_latex:
+        plt.rcParams.update(
+            {
+                "text.usetex": True,
+                "font.family": "serif",
+                "font.size": font_size,
+                "axes.titlesize": font_size,
+                "axes.labelsize": font_size,
+                "xtick.labelsize": font_size,
+                "ytick.labelsize": font_size,
+                "legend.fontsize": font_size,
+            }
+        )
+    else:
+        # Reset to default or specify non-LaTeX styles here if needed
+        plt.rcParams.update(
+            {
+                "font.size": font_size,
+                "axes.titlesize": font_size,
+                "axes.labelsize": font_size,
+                "xtick.labelsize": font_size,
+                "ytick.labelsize": font_size,
+                "legend.fontsize": font_size,
+            }
+        )
+
+
+colors = ["lightgray", "#3FD24B", "#E92424"]
+cmap = mcolors.LinearSegmentedColormap.from_list("RedGreyBlack", colors)
+
+
+# Single source of truth for the GA settings. These used to be duplicated
+# verbatim inside POMDP.ga_fit, POMDP_Forgetting.ga_fit and
+# POMDP_Exaggeration.ga_fit, which made them impossible to tune coherently.
+GA_ALGORITHM_PARAMS = {
+    "max_num_iteration": 200,
+    "population_size": 100,
+    "mutation_probability": 0.4,
+    "elit_ratio": 0.05,
+    "crossover_probability": 0.5,
+    "parents_portion": 0.5,
+    "crossover_type": "uniform",
+    "max_iteration_without_improv": None,
+}
+
+
+def get_ga_params() -> dict:
+    """Return the GA settings, letting POMDP_GA_PARAMS override any of them.
+
+    The environment variable holds a JSON object merged over
+    GA_ALGORITHM_PARAMS, so convergence settings can be swept across a fitting
+    run without editing library code (e.g. POMDP_GA_PARAMS='{"population_size":
+    400}'). Absent the variable the defaults are returned unchanged.
+
+    Returns:
+        dict: Algorithm parameters to hand to geneticalgorithm2.
+    """
+    params = dict(GA_ALGORITHM_PARAMS)
+    override = os.environ.get("POMDP_GA_PARAMS")
+    if override:
+        params.update(json.loads(override))
+    return params
+
+
+# Differential-evolution settings, validated against the GA on a nested model
+# pair (a model whose search space contains another's must not fit worse). The
+# GA left ~300 logL on the table for the larger model and violated nesting for
+# 17/20 subjects; these settings satisfy it for 20/20 at a comparable evaluation
+# budget, and reach an identical optimum from independent seeds. "polish" is the
+# key difference: it runs a local L-BFGS-B refinement the GA has no equivalent of.
+DE_ALGORITHM_PARAMS = {
+    "strategy": "best1bin",
+    "popsize": 15,
+    "maxiter": 300,
+    "tol": 0,
+    "mutation": (0.5, 1.0),
+    "recombination": 0.9,
+    "init": "sobol",
+    "polish": True,
+}
+
+
+def get_de_params() -> dict:
+    """Return the DE settings, letting POMDP_DE_PARAMS override any of them.
+
+    Mirrors get_ga_params: the environment variable holds a JSON object merged
+    over DE_ALGORITHM_PARAMS.
+
+    Returns:
+        dict: Keyword arguments for scipy's differential_evolution.
+    """
+    params = dict(DE_ALGORITHM_PARAMS)
+    override = os.environ.get("POMDP_DE_PARAMS")
+    if override:
+        params.update(json.loads(override))
+    if isinstance(params.get("mutation"), list):
+        params["mutation"] = tuple(params["mutation"])
+    return params
+
+
+_DE_SEEDS = None
+
+
+def de_seed_for(subject_ID, param_ranges: dict):
+    """Starting point for this subject under the active TASK, or None.
+
+    The table is written by scripts/build_de_seeds.py and named by the
+    POMDP_DE_SEEDS environment variable. Each entry is a point the current
+    model can occupy (a nested neighbour's fit), so starting there prevents the
+    optimizer from returning a worse fit than a model this one contains.
+
+    Args:
+        subject_ID: Identifier for the subject being fit.
+        param_ranges (dict): Used to check the seed has the expected length.
+
+    Returns:
+        list | None: Seed ordered like param_ranges, or None if unavailable.
+    """
+    global _DE_SEEDS
+    path = os.environ.get("POMDP_DE_SEEDS")
+    if not path:
+        return None
+    if _DE_SEEDS is None:
+        try:
+            import pickle
+
+            with open(path, "rb") as fh:
+                _DE_SEEDS = pickle.load(fh)
+        except Exception:
+            _DE_SEEDS = {}
+    vec = _DE_SEEDS.get(TASK, {}).get(str(subject_ID))
+    return vec if vec is not None and len(vec) == len(param_ranges) else None
+
+
+def run_differential_evolution(param_ranges: dict, cost_function, x0=None):
+    """Minimize cost_function over param_ranges with scipy differential evolution.
+
+    Args:
+        param_ranges (dict): Maps parameter name to a (low, high) bound tuple.
+            Iteration order defines the coordinate order of the result.
+        cost_function (Callable[[list], float]): Function to minimize.
+
+    Returns:
+        scipy.optimize.OptimizeResult: Raw result, so each caller can apply its
+            own post-processing (e.g. snapping gamma to the pre-built grid).
+
+    Notes:
+        is_hazardous is the one genuinely discrete parameter (0/1). Declaring it
+        via `integrality` makes DE search it as a binary gene rather than
+        optimizing a continuous value that is rounded afterwards.
+    """
+    keys = list(param_ranges.keys())
+    bounds = [tuple(param_ranges[k]) for k in keys]
+    integrality = np.array([1 if k == "is_hazardous" else 0 for k in keys])
+    kwargs = dict(get_de_params())
+    if x0 is not None:
+        # clipped so a seed taken from a model with wider bounds stays feasible
+        kwargs["x0"] = np.array(
+            [min(max(float(v), lo), hi) for v, (lo, hi) in zip(x0, bounds)],
+            dtype=float,
+        )
+    return differential_evolution(
+        cost_function,
+        bounds,
+        integrality=integrality,
+        seed=int(os.environ.get("POMDP_DE_SEED", "0")),
+        **kwargs,
+    )
+
+
