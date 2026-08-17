@@ -1,0 +1,44 @@
+# Third-party packages the analysis imports, pinned to the versions the
+# reported results were produced with.
+#
+# The list was derived by walking the imports of scripts/ and src/, then adding
+# the packages that are imported indirectly (jinja2 by pandas .to_latex(),
+# patsy by statsmodels formulas). The container shipped before this file was
+# missing jinja2 and nbconvert, each of which killed a batch of jobs at run time
+# before being installed per-user. They are included here so a container built
+# from this file is self-contained.
+
+# --- core numerics and data ---
+numpy==2.2.3
+pandas==2.2.3
+scipy==1.15.2
+fastparquet==2024.11.0          # parquet engine for the cached fits
+
+# --- plotting ---
+matplotlib==3.10.0
+seaborn==0.13.2
+pillow==11.1.0
+
+# --- statistics ---
+scikit-learn==1.6.1             # k-means, silhouette, r2_score
+statsmodels==0.14.4             # GLM and GLMM
+patsy==1.0.1                    # statsmodels formula interface
+
+# --- optimizers ---
+# differential_evolution comes from scipy above and produced the reported fits;
+# geneticalgorithm is the optimizer of the superseded first pass, kept so that
+# comparison can be reproduced.
+geneticalgorithm==1.0.2
+pygad==3.4.0
+
+# --- parallelism and progress reporting ---
+joblib==1.4.2
+tqdm==4.67.1
+tqdm_joblib==0.0.4
+
+# --- table and notebook export ---
+jinja2==3.1.6                   # required by pandas .to_latex(); its absence
+                                # silently killed every figure-export job
+nbconvert==7.17.1
+ipykernel==6.29.5
+notebook==7.6.0                 # only needed to run notebooks/ interactively

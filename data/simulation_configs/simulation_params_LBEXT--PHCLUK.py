@@ -1,0 +1,18 @@
+# Auto-converted from the original standalone config file.
+# Only fields that differ from src/config/schema.py's defaults are listed.
+OVERRIDES = dict(
+    POMDP_TYPE="exaggerate",
+    FIT_HORIZON=["long"],
+    PARAM_RANGES={
+        "xi": (0, 1),
+        "tau": (0, 100),
+        "urgency_coefficient": (-30, 0),
+        "patience": (0, 14),
+        "urgency_slope": (-20, 0),
+        "c_max": (0, 80),
+        "belief_bias": (0.01, 5),
+        "exaggeration_factor": (0.1, 4),
+        "hazard_lapse": (0, 1),
+        "is_hazardous": (0, 1),
+    },
+)

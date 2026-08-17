@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+title: >-
+  Code for "Deciding when to decide: how recency, urgency, risk, and bias shape
+  human sequential decision-making, a case study across the obsessive-compulsive
+  spectrum"
+message: If you use this software, please cite the paper below.
+type: software
+authors:
+  - given-names: Ahmed H.
+    family-names: Abdelrazik
+    affiliation: >-
+      Max Planck Institute for Biological Cybernetics, Tübingen, Germany; and
+      University of Tübingen, Tübingen, Germany
+  - given-names: Peter
+    family-names: Dayan
+    affiliation: >-
+      Max Planck Institute for Biological Cybernetics, Tübingen, Germany; and
+      University of Tübingen, Tübingen, Germany
+license: MIT
+repository-code: https://github.com/aabdelrazik/deciding-when-to-decide
+abstract: >-
+  Models of when people stop gathering evidence and commit, built as a partially
+  observable Markov decision process with interpretable departures from
+  optimality: a biased prior, transient exaggeration of the newest evidence,
+  progressive forgetting of older evidence, an inflated cost of being wrong,
+  patience and urgency, and misperception of the deadline. Includes the fitting
+  pipeline, the model and parameter recovery analyses, the regression
+  comparisons, and the scripts that produce every figure and table in the paper.
+keywords:
+  - sequential decision-making
+  - evidence accumulation
+  - POMDP
+  - computational psychiatry
+  - obsessive-compulsive disorder
+  - model comparison

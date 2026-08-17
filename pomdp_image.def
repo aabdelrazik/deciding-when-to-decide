@@ -1,0 +1,76 @@
+Bootstrap: docker
+From: python:3.12
+
+# Container for the whole analysis. Build once, run anywhere Apptainer or
+# Singularity is available:
+#
+#     apptainer build pomdp_image.sif pomdp_image.def
+#
+# Nothing in it is site-specific. The repository is expected to be bind-mounted
+# at /home/user, which is also the working directory, so paths inside the
+# container are the same on every machine:
+#
+#     apptainer exec --bind "$PWD:/home/user" --pwd /home/user \
+#         pomdp_image.sif python3 scripts/<script>.py
+#
+# Scripts that build their paths from the current working directory (anything
+# importing src.config) must instead be run from the scripts directory, because
+# the config layer takes the project root to be the parent of the working
+# directory:
+#
+#     apptainer exec --bind "$PWD:/home/user" --pwd /home/user/scripts \
+#         pomdp_image.sif python3 <script>.py
+#
+# Docker is equivalent if preferred:
+#     docker build -t pomdp -f - . < pomdp_image.def   # after converting, or
+#     docker run --rm -v "$PWD:/home/user" -w /home/user pomdp python3 ...
+
+%files
+    requirements.txt /opt/requirements.txt
+
+%post
+    # Build tools are needed for the packages without wheels for this Python.
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gfortran && rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir --upgrade pip
+    pip install --no-cache-dir -r /opt/requirements.txt
+
+    # Fail the build rather than a job three hours in. Every one of these was
+    # missing from an earlier image and was found only when a batch died.
+    python3 - <<'EOF'
+import importlib.util
+required = ["numpy", "pandas", "scipy", "matplotlib", "seaborn", "sklearn",
+            "statsmodels", "joblib", "tqdm", "tqdm_joblib", "geneticalgorithm",
+            "pygad", "jinja2", "nbconvert", "fastparquet"]
+missing = [m for m in required if importlib.util.find_spec(m) is None]
+if missing:
+    raise SystemExit("missing after install: " + ", ".join(missing))
+print("all required packages import cleanly")
+EOF
+
+    mkdir -p /home/user
+
+%environment
+    export WORKDIR=/home/user
+    # One thread per process: the fitting and sweep scripts parallelise across
+    # subjects themselves, and nested BLAS threads oversubscribe the node.
+    export OMP_NUM_THREADS=1
+    export OPENBLAS_NUM_THREADS=1
+    export MKL_NUM_THREADS=1
+    export NUMEXPR_NUM_THREADS=1
+    export MPLBACKEND=Agg
+    # matplotlib's default config path is not writable in a read-only image,
+    # which prints a warning and rebuilds the font cache on every process
+    export MPLCONFIGDIR=${MPLCONFIGDIR:-/tmp/matplotlib}
+    # Apptainer mounts the host home by default, so a stray ~/.local can shadow
+    # the container's packages with different versions and reintroduce exactly
+    # the drift this image exists to prevent.
+    export PYTHONNOUSERSITE=1
+
+%test
+    python3 -c "import numpy, pandas, scipy, matplotlib, statsmodels, \
+jinja2, nbconvert; print('container OK')"
+
+%labels
+    Description Analysis environment for the OCD information-gathering POMDP study

@@ -1,0 +1,27 @@
+{
+  "best_models": {
+    "short": "SBEXT-RPh----",
+    "long": "LBEXT-RPhCLUK",
+    "combined": "CB-XT-RPHCLUK"
+  },
+  "glm_metrics": {
+    "sum logL": -26624.981069174028,
+    "k": 735,
+    "n_obs": 90029,
+    "AIC": 54719.962138348055,
+    "AICc": 54732.078653640405,
+    "BIC": 61634.75917127772
+  },
+  "n_subjects_compared": 105,
+  "pomdp_bic_mean": 654.0359067254833,
+  "pomdp_bic_std": 38.655610245059236,
+  "glm_bic_mean": 554.3647139294364,
+  "glm_bic_std": 86.18134759489965,
+  "mean_paired_diff": 99.67119279604702,
+  "t_stat": 12.636175514423089,
+  "t_p": 9.749718775458685e-23,
+  "w_stat": 322.0,
+  "w_p": 3.6689040247949105e-15,
+  "n_glm_better": 95,
+  "n_pomdp_better": 10
+}

@@ -1,0 +1,14 @@
+{
+  "n_subjects_compared": 105,
+  "pomdp_aic_mean": 606.5755961915681,
+  "pomdp_aic_std": 38.02139166283365,
+  "glm_aic_mean": 521.1424965556957,
+  "glm_aic_std": 86.19428059486968,
+  "mean_paired_diff": 85.43309963587244,
+  "t_stat": 10.843998902180335,
+  "t_p": 8.776163742449175e-19,
+  "w_stat": 465.0,
+  "w_p": 1.276329755057237e-13,
+  "n_glm_better": 93,
+  "n_pomdp_better": 12
+}

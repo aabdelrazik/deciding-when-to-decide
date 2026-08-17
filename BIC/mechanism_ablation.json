@@ -1,0 +1,110 @@
+[
+ {
+  "horizon":"Short",
+  "label":"Temporal regulation only",
+  "task":"SB-XT-RPh----",
+  "BIC":28601.5684573517,
+  "k":5,
+  "n":105,
+  "dBIC":-226.3873703758
+ },
+ {
+  "horizon":"Short",
+  "label":"Exaggeration + temporal regulation",
+  "task":"SBEXT-RPh----",
+  "BIC":28827.9558277275,
+  "k":6,
+  "n":105,
+  "dBIC":0.0
+ },
+ {
+  "horizon":"Short",
+  "label":"Exaggeration only",
+  "task":"SBEXT-R-h----",
+  "BIC":38019.7177142182,
+  "k":5,
+  "n":105,
+  "dBIC":9191.7618864907
+ },
+ {
+  "horizon":"Short",
+  "label":"Neither",
+  "task":"SB-XT-R-h----",
+  "BIC":38422.5423006385,
+  "k":4,
+  "n":105,
+  "dBIC":9594.586472911
+ },
+ {
+  "horizon":"Long",
+  "label":"Exaggeration + temporal regulation",
+  "task":"LBE-T-RPhCL--",
+  "BIC":37788.2072431445,
+  "k":7,
+  "n":105,
+  "dBIC":0.0
+ },
+ {
+  "horizon":"Long",
+  "label":"Temporal regulation only",
+  "task":"LB--T-RPhCL--",
+  "BIC":38319.7495058699,
+  "k":6,
+  "n":105,
+  "dBIC":531.5422627254
+ },
+ {
+  "horizon":"Long",
+  "label":"Neither",
+  "task":"LB--T-R-h-L--",
+  "BIC":58936.8943863356,
+  "k":4,
+  "n":105,
+  "dBIC":21148.6871431911
+ },
+ {
+  "horizon":"Long",
+  "label":"Exaggeration only",
+  "task":"LBE-T-R-h-L--",
+  "BIC":59225.1309833315,
+  "k":5,
+  "n":105,
+  "dBIC":21436.923740187
+ },
+ {
+  "horizon":"Combined",
+  "label":"Exaggeration + temporal regulation",
+  "task":"C-EXT-RPHC-UK",
+  "BIC":67122.7798306612,
+  "k":9,
+  "n":105,
+  "dBIC":0.0
+ },
+ {
+  "horizon":"Combined",
+  "label":"Temporal regulation only",
+  "task":"C--XT-RPHC-UK",
+  "BIC":67450.9049299739,
+  "k":8,
+  "n":105,
+  "dBIC":328.1250993127
+ },
+ {
+  "horizon":"Combined",
+  "label":"Exaggeration only",
+  "task":"C-EXT-R-H----",
+  "BIC":91772.7356867603,
+  "k":5,
+  "n":105,
+  "dBIC":24649.9558560991
+ },
+ {
+  "horizon":"Combined",
+  "label":"Neither",
+  "task":"C--XT-R-H----",
+  "BIC":92219.6183359586,
+  "k":4,
+  "n":105,
+  "dBIC":25096.8385052974
+ }
+]

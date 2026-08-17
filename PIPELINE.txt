@@ -1,0 +1,377 @@
+================================================================================
+REPRODUCING THE ANALYSIS
+Sequential evidence gathering as a POMDP, fitted per subject
+================================================================================
+
+A complete recipe, from the downloaded behavioural data to every figure and
+table in the manuscript. Paths are relative to the repository root.
+
+CONTENTS
+   0  Environment and conventions
+   1  Data and preprocessing
+   2  Model definitions and naming
+   3  Fitting
+   4  Ensembles
+   5  Model comparison
+   6  Parameter and model recovery
+   7  GLM and GLMM
+   8  Cost of departing from optimality
+   9  Asset map: every figure and table, and what makes it
+  10  Full rebuild, in order
+  11  Things that will bite you
+
+
+================================================================================
+0  ENVIRONMENT AND CONVENTIONS
+================================================================================
+
+0.1  Build the container
+
+     Build once from the definition in the repository root:
+
+         apptainer build pomdp_image.sif pomdp_image.def
+
+     Singularity is equivalent. The definition installs requirements.txt into a
+     python:3.12 base and then checks that every required package imports.
+
+     Without a container, pip install -r requirements.txt into a clean Python
+     3.12 environment gives the same set.
+
+0.2  How to invoke anything
+
+     The repository is bound at its own path:
+
+         apptainer exec --bind "$PWD:$PWD" --pwd "$PWD" \
+             pomdp_image.sif python3 scripts/<script>.py
+
+     Scripts resolve the repository root from their own file location, so they
+     run from any working directory. POMDP_ROOT overrides it.
+
+     Add --env PYTHONNOUSERSITE=1 if you have a ~/.local that could shadow the
+     container packages. Apptainer mounts the host home by default, and a stray
+     user install of nbconvert or pandas is picked up ahead of the container.
+
+0.3  SIM_CONFIG_PATH selects the model
+
+     Almost every script reads it. Unset, you get the default config in
+     src/config/simulation_params.py, which is a forgetting model and needs the
+     gamma grids of section 1. A bare POMDPFactory() therefore fails
+     confusingly rather than doing something sensible.
+
+0.4  SIM_ALGORITHM selects which fits everything reads
+
+     Defaults to de, which is what every reported result uses. ga is also
+     available. The algorithm is a component of the output path, so de and ga
+     results are siblings and never mix.
+
+0.5  Other environment variables
+
+         SIM_N_JOBS            subjects fitted in parallel through joblib
+         POMDP_SUBDIR          redirect data/ and figures/ to another tree
+         POMDP_DE_PARAMS       JSON merged over the DE settings, for quick runs
+         POMDP_DE_SEEDS        seed table from scripts/fit/build_de_seeds.py
+         GLM_SIMULATE_FORCE_REFIT=1   invalidate the cached GLM betas
+
+0.6  Conventions in the numbers
+
+     BIC is per subject summed: sum_i k*log(n_obs_i) - 2*ll_i, where n_obs_i is
+     that subject's own draw count. 
+
+     Actions are 0 commit yellow, 1 commit blue, 2 wait. Evidence rows are
+     [draw, cumulative_yellow, cumulative_blue, action, outcome], with
+     cumulative counts. Outcomes are +2 correct, -2 incorrect, and -1 for a
+     game that reached the deadline undecided.
+
+
+================================================================================
+1  DATA AND PREPROCESSING
+================================================================================
+
+     The behavioural data belong to del Rio and colleagues (Nature Human
+     Behaviour 10(4):727-740, 2026) and are public on OSF at
+     https://osf.io/fks97/. Download the TrHu_NHB folder and unpack it so that
+     data/TrHu_NHB_light/data_MEG/ holds behdat.mat,
+     fa_scores.csv and ybocs_scores.csv. sNdraws8.mat is not included in the OSF data
+     which holds the actual rewards-obtained from Prof. Tobias Hauser. 
+
+     No MATLAB is required. The .m files in that download are the original
+     authors' analyses.
+
+     Then, in order:
+
+         python3 scripts/preprocess/preprocess_01_convert_mat.py
+         python3 scripts/preprocess/preprocess_02_add_reward.py
+         python3 scripts/preprocess/preprocess_03_build_evidence.py
+
+     Step 2 is the one that is easy to miss and expensive to skip. behdat.mat
+     carries no reward. The reward lives in sNdraws8.mat, and step 2 aligns the
+     two datasets subject by subject on their behaviour, since they share no
+     identifiers, then derives each game's reward from the following game's
+     postfeedback value. Everything measured in points depends on it. The step
+     prints how many subjects it matched, which should be all 105.
+
+     Step 3 writes behdat_preprocessed.pkl and the evidence dictionaries. The
+     plain dictionaries stop at the subject's decision, so their length is that
+     subject's draw count. The _full_sequence ones continue to the deadline and
+     are what the scoring analyses replay.
+
+     Forgetting models additionally need pre-computed grids of discounted
+     evidence, one per gamma:
+
+         python3 scripts/preprocess/generate_gamma_grids.py
+
+
+================================================================================
+2  MODEL DEFINITIONS AND NAMING
+================================================================================
+
+2.1  Naming
+
+     A TASK is a horizon prefix then twelve slots:
+
+         B E X T G R P H C L U K
+
+     Uppercase means the parameter is fitted, lowercase means it is fixed on,
+     and a dash means the mechanism is off. The prefix is S for short, L for
+     long, C for both horizons fitted together.
+
+     So SB-XT-RPh---- is a short horizon model fitting belief bias, temperature,
+     lapse and subjective cost, with the hazard fixed on and no recency.
+
+2.2  Configs
+
+     One config per model in data/simulation_configs/, all committed. There is
+     no generator; they are written by hand. Each _commit.py sibling imports its
+     base config and flips POMDP_COMMIT, which switches the objective to the
+     decide against wait likelihood and redirects output to data/POMDP_commit/,
+     so a commit fit can never overwrite a full one.
+
+
+================================================================================
+3  FITTING
+================================================================================
+
+         SIM_CONFIG_PATH=$PWD/data/simulation_configs/simulation_params_<TASK>.py \
+         SIM_ALGORITHM=de SIM_N_JOBS=8 python3 scripts/fit/fit_data.py
+
+     Forgetting models use scripts/fit/fit_data_forgetting.py, which has no ensemble
+     stage of its own; use scripts/ensembles/build_ensemble_forgetting.py for those.
+
+     Writes results.pkl, all_simulated_data*.pkl, and a copy of the config used,
+     into data/POMDP/<TASK>/<algorithm>/[<horizon>/].
+
+3.1  Seeded second pass
+
+     Differential evolution finds the right region but not always the exact
+     optimum, which shows up as nesting violations: a larger model fitting a
+     subject worse than a model nested inside it, which is impossible at a true
+     optimum. Detect and repair with
+
+         python3 scripts/fit/count_nesting_violations.py
+         python3 scripts/fit/build_de_seeds.py
+         POMDP_DE_SEEDS=$PWD/BIC/_de_seeds.pkl ... python3 scripts/fit/fit_data.py
+         python3 scripts/fit/merge_de_runs.py
+
+     merge_de_runs keeps each subject's better fit across the seeded and
+     unseeded runs. That is a multi start estimate: it keeps the seeded run's
+     guarantee while protecting against its tendency to converge around the
+     seed.
+
+3.2  Cost
+
+     On a 128 core node, roughly one hour for a simple model and up to nineteen
+     for a forgetting model, per model, for all 105 subjects. The full set of 78
+     models is several hundred node hours. 
+
+
+================================================================================
+4  ENSEMBLES
+================================================================================
+
+         python3 scripts/ensembles/regenerate_ensembles.py
+
+     Simulates 300 datasets per model from the fitted parameters and writes
+     raw_simulations/, ensemble_metrics_summary.csv and
+     ensemble_distribution_data.pkl. The GLM scripts and the per subject fit
+     figures read these.
+
+     Ensembles do not know that results.pkl changed. Regenerate them after any
+     refit, or the downstream figures silently describe the previous fit.
+
+
+================================================================================
+5  MODEL COMPARISON
+================================================================================
+
+5.1  Aggregate
+
+         python3 scripts/comparison/model_comparison_viper.py     -> BIC/model_comparison_viper.csv
+         python3 scripts/comparison/compute_bic_commit.py         -> the commit family
+
+5.2  The winners, and the tables
+
+     notebooks/model_comparison.ipynb writes BIC/best_models.json, which most of
+     the export scripts read, together with the model selection tables and the
+     comparison figures. Its commit sibling does the same under BIC_commit/.
+
+5.3  Per subject selection
+
+         python3 scripts/comparison/per_subject_model_selection.py
+         python3 scripts/comparison/export_pxp_table.py
+         python3 scripts/comparison/export_personalization_cost_table.py
+
+     In that order. The pxp table reads the per subject BIC matrices written by
+     the first, and the personalisation cost table parses the LaTeX that the
+     model_comparison notebook wrote.
+
+
+================================================================================
+6  PARAMETER AND MODEL RECOVERY
+================================================================================
+
+6.1  Parameter recovery
+
+     Simulate from each subject's own fitted parameters, refit blind, compare.
+
+         SIM_CONFIG_PATH=... python3 scripts/recovery/recovery_post_analysis.py
+         python3 scripts/recovery/export_parameter_recovery_panel.py
+
+6.2  Model recovery
+
+     A different question: whether the comparison can identify which model
+     generated the data at all. Simulate from model G, fit every candidate, and
+     see which one selection picks.
+
+         GEN_TASK=<G> SIM_CONFIG_PATH=<F> python3 scripts/recovery/model_recovery.py
+         MODEL_RECOVERY_TAG=top5 MODEL_RECOVERY_LISTS=BIC/_model_recovery_top5_{h}.txt \
+             python3 scripts/recovery/export_model_recovery.py
+
+     One cell per generator and candidate pair. The export reports both the
+     subject level confusion matrix and the group level winner, and decomposes
+     each miss into its likelihood and parameter penalty parts.
+
+
+================================================================================
+7  GLM AND GLMM
+================================================================================
+
+     The regressions the POMDP is compared against. Human coefficients first:
+
+         python3 scripts/glm/glm_magda.py            -> glm_betas_human.csv
+         python3 scripts/glm/compute_human_glmm.py   -> glmm_estimates_human.pkl
+
+     Then the model simulated ones, which pair a long horizon model with a short
+     one, or use a combined config on its own:
+
+         SIM_CONFIG_SHORT_PATH=... SIM_CONFIG_LONG_PATH=... \
+             python3 scripts/glm/glm_multiprocessed_simulate.py
+         SIM_CONFIG_PATH=... python3 scripts/glm/glm_multiprocessed_combined.py
+
+     Then the comparison figures and tables:
+
+         python3 scripts/glm/export_glmm_comparison_commit.py
+         python3 scripts/glm/export_glmm_horizon_comparison.py
+         python3 scripts/glm/plot_glm_array_commit_cached.py
+         python3 scripts/glm/export_recency_beta_vs_compulsivity.py
+
+     These use the commit likelihood, because the GLM predicts only whether a
+     participant commits on a given draw and not which option they choose.
+
+
+================================================================================
+8  COST OF DEPARTING FROM OPTIMALITY
+================================================================================
+
+     Scores every policy in the task's own points, against a normative agent
+     given the task's true prior over the generative probability.
+
+         INFORMED_PRIOR=1 OPTIMAL_ONLY=1 OUT_SUFFIX=_informed \
+             python3 scripts/optimality/export_optimality_cost.py
+         OPTIMALITY_SRC=$PWD/BIC/optimality/optimality_cost_informed.csv \
+             python3 scripts/optimality/export_optimality_figure.py
+         INFORMED_PRIOR=1 OPTIMALITY_SRC=... python3 scripts/optimality/export_optimality_stats.py
+
+     scripts/optimality/informed_prior_optimum.py builds the informed benchmark on its own
+     and reports how far it departs from the uniform prior version, which is the
+     check that the choice of prior does not drive the result.
+
+
+================================================================================
+9  ASSET MAP
+================================================================================
+
+     figure or table                          made by
+     ---------------------------------------- ----------------------------------
+     optimality_gap                           export_optimality_figure.py
+     parameter_recovery_panel                 export_parameter_recovery_panel.py
+     model_recovery_top5                      export_model_recovery.py
+     pxp_family, pxp_model                    export_pxp_table.py
+     personalization_cost                     export_personalization_cost_table.py
+     shared_parameter_correlation             shared_parameter_correlation.py
+     fullfit_vs_commit_params_*               export_fullfit_vs_commit_params.py
+     mechanism_ablation_table                 mechanism_ablation_table.py
+     simulation_params_table_*                export_model_params_table.py
+     symptom_assoc_combined                   export_symptom_assoc_figures.py
+     ensemble_all_subjects_*, ensemble_r2_*   recovery_post_analysis.py
+     subject_fit_panel/*                      export_subject_fit_panel.py
+     exaggeration_subgroups/*                 export_exaggeration_subgroup_figures.py
+     glmm_by_horizon_*                        export_glmm_horizon_comparison.py
+     glmm_betas_comparison_*                  export_glmm_comparison_commit.py
+     glm_human_vs_model_averaged              plot_glm_array_commit_cached.py
+     recency_beta_vs_compulsivity_*           export_recency_beta_vs_compulsivity.py
+     illustrate/*, temporal_regulation,       export_policy_illustration_figures.py
+       hazard_functions_stacked
+     four_subjects_panel,                     notebooks/data-exploration.ipynb
+       yellow_blue_fractions_stacked
+     model selection tables, compare_*,       notebooks/model_comparison.ipynb
+       best_models_macros, personalized_*       and its _commit sibling
+
+     figures/MEG_task.png is a hand made schematic with no producer here.
+
+
+================================================================================
+10  FULL REBUILD, IN ORDER
+================================================================================
+
+      1  build the container                        section 0.1
+      2  download the data                          section 1
+      3  preprocess, all three steps                section 1
+      4  generate_gamma_grids.py                    only for forgetting models
+      5  fit_data.py per config                     section 3
+      6  seeded second pass and merge               section 3.1
+      7  count_nesting_violations.py                check convergence
+      8  regenerate_ensembles.py                    section 4
+      9  model_comparison_viper.py                  the CSV
+     10  notebooks/model_comparison.ipynb           best_models.json and tables
+     11  per_subject_model_selection.py, then pxp   section 5.3
+     12  recovery, both kinds                       section 6
+     13  glm and glmm                               section 7
+     14  optimality cost                            section 8
+     15  the remaining export scripts               section 9
+
+     Step 10 is the one people skip. Without it best_models.json is stale and
+     everything from 11 onward silently describes the previous winners.
+
+
+================================================================================
+11  THINGS THAT WILL BITE YOU
+================================================================================
+
+     The cost function catches every exception and returns 1e10. A model whose
+     likelihood raises will appear to fit and produce noise rather than failing.
+     Grep job logs for [Cost Error].
+
+     Ensembles and the cached GLM betas do not track their inputs. Rerun
+     regenerate_ensembles.py after refitting, and set GLM_SIMULATE_FORCE_REFIT=1
+     to invalidate the GLM cache.
+
+     SIM_CONFIG_PATH unset gives you the default forgetting config, which needs
+     the gamma grids.
+
+     unscale_params clips to the declared bounds. The scaling round trip could
+     otherwise return a value fractionally outside the range it was searched in.
+     A few of the deposited fits sit fractionally outside their declared bounds,
+     which is why the bounds test in tests/ allows a tolerance relative to each
+     parameter's range.
+
+
