@@ -30,8 +30,8 @@ version the reported results were produced with.
 **Container**
 
 ```bash
-git clone https://github.com/aabdelrazik/deciding-when-to-decide-internal
-cd deciding-when-to-decide-internal
+git clone https://github.com/aabdelrazik/deciding-when-to-decide
+cd deciding-when-to-decide
 apptainer build pomdp_image.sif pomdp_image.def          # or singularity
 apptainer exec --bind "$PWD:$PWD" --pwd "$PWD" pomdp_image.sif python3 scripts/<script>.py
 ```
