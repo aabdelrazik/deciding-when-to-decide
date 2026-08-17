@@ -80,12 +80,19 @@ The `.m` files are the original authors' own analyses and are never called; the
 **One file is not on OSF.** `sNdraws8.mat` contains the rewards received by each 
 participant. These data are not included in the OSF deposit, yet all results 
 measured in points depend on them. We obtained the file from Prof. Tobias Hauser 
-and have included it here. 
-```
-data/TrHu_NHB_light/data_MEG/sNdraws8.mat
-```
+and have included it here for the reviewers’ use only. We plan to make it 
+available to readers in the future. For reviewers, a password-protected archive 
+is available at:
+`data/TrHu_NHB_light/data_MEG/sNdraws8_encrypted.zip`
 
-so the download above is all you need to fetch.
+### Decryption Instructions
+The password is provided in the **"Data Availability"** section of the submission portal.
+
+* **macOS:** Double-click `sNdraws8_encrypted.zip` and enter the password.
+* **Windows:** Right-click `sNdraws8_encrypted.zip` > **Extract All...** > enter the password.
+* **Linux / CLI:** Run `cd data/TrHu_NHB_light/data_MEG/ && unzip sNdraws8_encrypted.zip`
+
+Ensure the extracted `sNdraws8.mat` file remains in `data/TrHu_NHB_light/data_MEG/` so scripts run automatically.
 
 ## Preprocess, in this order
 
