@@ -75,8 +75,8 @@ data/TrHu_NHB_light/data_MEG/ybocs_scores.csv    2.4 KB
 Take the three rather than the folder: `data_MEG` also holds the MEG decoding
 outputs, one of which is 4 GB, and none of them is read here. No MATLAB either.
 The `.m` files are the original authors' own analyses and are never called; the
-`.mat` files are read with scipy. The three files must be saved to 
-`data/TrHu_NHB_light/data_MEG` directory. 
+`.mat` files are read with scipy. The three files must be saved to the
+`data/TrHu_NHB_light/data_MEG/` directory. 
 
 **One file is not on OSF.** `sNdraws8.mat` contains the rewards received by each 
 participant. These data are not included in the OSF deposit, yet all results 
