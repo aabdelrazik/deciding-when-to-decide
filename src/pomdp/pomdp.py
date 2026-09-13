@@ -2492,8 +2492,6 @@ class POMDP_Forgetting(POMDP_Urgency):
             hessian_matrix,
         )
 
-    # Not correctly implemented yet. Just if the data entered here is the same as before but the interpolation doesn't work yet
-    # raise error not implemented if someone called the function
     def simulate_cards_pomdp(
         self,
         given_sequence: bool = False,
