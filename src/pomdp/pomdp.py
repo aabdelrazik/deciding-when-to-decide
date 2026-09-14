@@ -156,21 +156,21 @@ class POMDP:
         The total sum is always 1; total of first two actions is preserved.
 
         Args:
-            action_values (np.ndarray): Q-values (..., n_actions), with Wait as the last action.
-            draw (int): Current draw index. Accepted for a draw-dependent softmax but currently
+            action_values (np.ndarray): Q values (..., n_actions), with Wait as the last action.
+            draw (int): Current draw index. Accepted for a draw dependent softmax but currently
                 unused in this implementation (self.tau/self.xi are applied uniformly across draws).
             axis (int): Axis over which to apply the softmax (must index the actions dimension).
 
         Returns:
-            np.ndarray: Action-probability array with the same shape as action_values.
+            np.ndarray: Action probability array with the same shape as action_values.
         """
         # Standard, stable softmax
         max_val = np.max(action_values, axis=axis, keepdims=True)
         all_impossible_mask = np.isneginf(max_val)
         safe_max_val = np.where(all_impossible_mask, 0, max_val)
-        # tau is a softmax denominator -- as it approaches 0 the division
-        # blows up (divide-by-zero/overflow), so floor it for this division
-        # only; self.tau itself (the fitted/reported parameter) is untouched.
+        # tau is a softmax denominator, and as it approaches 0 the division
+        # blows up (divide by zero or overflow), so floor it for this division
+        # only; self.tau itself (the fitted and reported parameter) is untouched.
         safe_tau = max(self.tau, 1e-3)
         scaled_values = (action_values - safe_max_val) / safe_tau
 
@@ -184,19 +184,9 @@ class POMDP:
         # Get total probability of first two before mixing
         probs_first_two_sum = np.sum(softmax_probs[..., :2], axis=axis, keepdims=True)
 
-        # Mix the first two: new = (1-xi)*orig + xi/2, but RESCALE so their total is unchanged
-        # Calculate the sum after lapse would have been applied
-        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + self.xi / 2
-        mixed_sum = np.sum(mixed_first_two, axis=axis, keepdims=True)
-
-        # Scale factor so the sum of the first two actions remains the same as before
-        scaling = np.divide(
-            probs_first_two_sum,
-            mixed_sum,
-            out=np.ones_like(mixed_sum),
-            where=(mixed_sum != 0),
+        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + probs_first_two_sum * (
+            self.xi / 2
         )
-        mixed_first_two = mixed_first_two * scaling
 
         # Stack all together: first two mixed, last untouched
         final_policy = np.concatenate(
@@ -1811,19 +1801,19 @@ class POMDP_Forgetting(POMDP_Urgency):
         Same as POMDP.softmax_policy but without the (unused) draw parameter.
 
         Args:
-            action_values (np.ndarray): Q-values (..., n_actions), with Wait as the last action.
+            action_values (np.ndarray): Q values (..., n_actions), with Wait as the last action.
             axis (int): Axis over which to apply the softmax (must index the actions dimension).
 
         Returns:
-            np.ndarray: Action-probability array with the same shape as action_values.
+            np.ndarray: Action probability array with the same shape as action_values.
         """
         # Standard, stable softmax
         max_val = np.max(action_values, axis=axis, keepdims=True)
         all_impossible_mask = np.isneginf(max_val)
         safe_max_val = np.where(all_impossible_mask, 0, max_val)
-        # tau is a softmax denominator -- as it approaches 0 the division
-        # blows up (divide-by-zero/overflow), so floor it for this division
-        # only; self.tau itself (the fitted/reported parameter) is untouched.
+        # tau is a softmax denominator, and as it approaches 0 the division
+        # blows up (divide by zero or overflow), so floor it for this division
+        # only; self.tau itself (the fitted and reported parameter) is untouched.
         safe_tau = max(self.tau, 1e-3)
         scaled_values = (action_values - safe_max_val) / safe_tau
 
@@ -1837,18 +1827,9 @@ class POMDP_Forgetting(POMDP_Urgency):
         # Get total probability of first two before mixing
         probs_first_two_sum = np.sum(softmax_probs[..., :2], axis=axis, keepdims=True)
 
-        # Mix the first two: new = (1-xi)*orig + xi/2, but RESCALE so their total is unchanged
-        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + self.xi / 2
-        mixed_sum = np.sum(mixed_first_two, axis=axis, keepdims=True)
-
-        # Scale factor
-        scaling = np.divide(
-            probs_first_two_sum,
-            mixed_sum,
-            out=np.ones_like(mixed_sum),
-            where=(mixed_sum != 0),
+        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + probs_first_two_sum * (
+            self.xi / 2
         )
-        mixed_first_two = mixed_first_two * scaling
 
         # Stack all together
         final_policy = np.concatenate(
@@ -3188,19 +3169,19 @@ class POMDP_Exaggeration(POMDP_Urgency):
         Same as POMDP.softmax_policy but without the (unused) draw parameter.
 
         Args:
-            action_values (np.ndarray): Q-values (..., n_actions), with Wait as the last action.
+            action_values (np.ndarray): Q values (..., n_actions), with Wait as the last action.
             axis (int): Axis over which to apply the softmax (must index the actions dimension).
 
         Returns:
-            np.ndarray: Action-probability array with the same shape as action_values.
+            np.ndarray: Action probability array with the same shape as action_values.
         """
         # Standard, stable softmax
         max_val = np.max(action_values, axis=axis, keepdims=True)
         all_impossible_mask = np.isneginf(max_val)
         safe_max_val = np.where(all_impossible_mask, 0, max_val)
-        # tau is a softmax denominator -- as it approaches 0 the division
-        # blows up (divide-by-zero/overflow), so floor it for this division
-        # only; self.tau itself (the fitted/reported parameter) is untouched.
+        # tau is a softmax denominator, and as it approaches 0 the division
+        # blows up (divide by zero or overflow), so floor it for this division
+        # only; self.tau itself (the fitted and reported parameter) is untouched.
         safe_tau = max(self.tau, 1e-3)
         scaled_values = (action_values - safe_max_val) / safe_tau
 
@@ -3214,18 +3195,9 @@ class POMDP_Exaggeration(POMDP_Urgency):
         # Get total probability of first two before mixing
         probs_first_two_sum = np.sum(softmax_probs[..., :2], axis=axis, keepdims=True)
 
-        # Mix the first two: new = (1-xi)*orig + xi/2, but RESCALE so their total is unchanged
-        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + self.xi / 2
-        mixed_sum = np.sum(mixed_first_two, axis=axis, keepdims=True)
-
-        # Scale factor
-        scaling = np.divide(
-            probs_first_two_sum,
-            mixed_sum,
-            out=np.ones_like(mixed_sum),
-            where=(mixed_sum != 0),
+        mixed_first_two = softmax_probs[..., :2] * (1 - self.xi) + probs_first_two_sum * (
+            self.xi / 2
         )
-        mixed_first_two = mixed_first_two * scaling
 
         # Stack all together
         final_policy = np.concatenate(

@@ -35,11 +35,12 @@ results_recovered_path = RESULTS_RECOVERED_PATH
 from src.pomdp import POMDPFactory
 
 
-def apply_discounting(card_sequences, gamma=0.5):
-    """Recompute gamma-discounted effective yellow/blue counts for a raw
+def apply_discounting(card_sequences, gamma=0.5, beta=1.0):
+    """Recompute gamma discounted effective yellow and blue counts for a raw
     (undiscounted) card sequence, matching data_preprocessing_forgetting's
-    recursive weighting: discounted[i] = gamma * discounted[i-1] + raw[i] +
-    (1 - gamma).
+    recursive weighting: discounted[i] = gamma * discounted[i-1] + raw[i], plus
+    an offset of (1 - gamma) * alpha for yellow and (1 - gamma) * beta for blue,
+    where alpha is fixed at 1 and beta is the fitted belief bias.
     """
     undiscounted_yellow = [0]
     undiscounted_blue = [0]
@@ -59,7 +60,7 @@ def apply_discounting(card_sequences, gamma=0.5):
         i += 1
     i = 1
     for blue in undiscounted_blue[1:]:
-        discounted_blue[i] = gamma * discounted_blue[i - 1] + blue + (1 - gamma)
+        discounted_blue[i] = gamma * discounted_blue[i - 1] + blue + (1 - gamma) * beta
         i += 1
     new_card_sequences = []
     for i, card_sequence in enumerate(card_sequences):
